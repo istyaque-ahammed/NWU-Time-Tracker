@@ -1,110 +1,159 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from "react";
+import { View, Text, FlatList, Button, Dimensions, SafeAreaView, StyleSheet } from "react-native";
+import * as SQLite from "expo-sqlite";
+import dayjs from "dayjs";
 
-import { Collapsible } from '@/components/Collapsible';
-import { ExternalLink } from '@/components/ExternalLink';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
+type Punch = {
+  id: number;
+  date: string;
+  duration: number;
+};
 
-export default function TabTwoScreen() {
+const formatDuration = (decimalHours: number): string => {
+  const hours = Math.floor(decimalHours);
+  const minutes = Math.round((decimalHours - hours) * 60);
+  return `${hours} hr ${minutes} min`;
+};
+
+export default function WeeklyReport() {
+  const [weeklyData, setWeeklyData] = useState<
+    { day: string; date: string; total: number; required: number; met: boolean }[]
+  >([]);
+  const [currentWeekStart, setCurrentWeekStart] = useState(dayjs().startOf("week").add(1, "day")); // Monday as state
+  const [grouped, setGrouped] = useState<{ [key: string]: number }>({}); // Store grouped data once
+
+  useEffect(() => {
+    const loadData = async () => {
+      const db = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
+      const rows = await db.getAllAsync("SELECT * FROM punches");
+      const newGrouped: { [key: string]: number } = {};
+      rows.forEach((p: Punch) => {
+        newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
+      });
+      setGrouped(newGrouped);
+    };
+    loadData();
+  }, []); // Load once on mount
+
+  useEffect(() => {
+    // Generate days based on currentWeekStart
+    const days = Array.from({ length: 6 }).map((_, i) => {
+      const date = currentWeekStart.add(i, "day");
+      const total = grouped[date.format("YYYY-MM-DD")] || 0;
+      const required = i === 4 ? 4 : 5; // Friday → 4h, others → 5h
+      return {
+        day: date.format("dddd"),
+        date: date.format("YYYY-MM-DD"),
+        total,
+        required,
+        met: total >= required,
+      };
+    });
+    setWeeklyData(days);
+  }, [currentWeekStart, grouped]); // Regenerate on week change or data load
+
+  const totalHours = weeklyData.reduce((acc, item) => acc + item.total, 0);
+  const requiredTotal = weeklyData.reduce((acc, item) => acc + item.required, 0);
+  const weekMet = weeklyData.every((item) => item.met); // True if all days met requirements
+
+  const handlePreviousWeek = () => {
+    setCurrentWeekStart(currentWeekStart.subtract(7, "day"));
+  };
+
+  const handleNextWeek = () => {
+    const nextStart = currentWeekStart.add(7, "day");
+    // Optional: Prevent navigating too far into future
+    if (nextStart.isBefore(dayjs().startOf("week").add(1, "day").add(7, "day"))) {
+      setCurrentWeekStart(nextStart);
+    }
+  };
+
+  const { width } = Dimensions.get('window');
+  const isTablet = width > 600; // Simple breakpoint for tablets/larger screens
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: "#fff",
+    },
+    content: {
+      flex: 1,
+      padding: isTablet ? 40 : 20, // Larger padding on tablets
+    },
+    title: {
+      fontSize: isTablet ? 32 : 24, // Scale font sizes
+      fontWeight: "bold",
+      marginBottom: 10,
+    },
+    navContainer: {
+      flexDirection: isTablet ? 'row' : 'column', // Side-by-side navigation on tablets
+      justifyContent: isTablet ? 'space-around' : 'flex-start',
+      marginBottom: 10,
+    },
+    navButtonSpacer: {
+      marginVertical: isTablet ? 0 : 5,
+      marginHorizontal: isTablet ? 10 : 0,
+    },
+    row: {
+      padding: 10,
+      borderBottomWidth: 1,
+      borderColor: "#ccc",
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center', // Align vertically
+      flexWrap: 'wrap', // Allow wrapping if needed on very narrow screens
+    },
+    leftText: {
+      fontSize: isTablet ? 16 : 14,
+      flex: 1, // Allow left text to take available space and wrap
+      marginRight: 10, // Space between left and right
+    },
+    rightText: {
+      fontSize: isTablet ? 16 : 14,
+      textAlign: 'right', // Align right text to the end
+    },
+    totalContainer: {
+      marginTop: 20,
+      padding: 10,
+      borderTopWidth: 1,
+      borderColor: "#ccc",
+    },
+    totalText: {
+      fontWeight: "bold",
+      fontSize: isTablet ? 18 : 16,
+    },
+  });
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>Weekly Report</Text>
+        <View style={styles.navContainer}>
+          <Button title="Previous Week" onPress={handlePreviousWeek} />
+          <View style={styles.navButtonSpacer} />
+          <Button title="Next Week" onPress={handleNextWeek} />
+        </View>
+        <FlatList
+          data={weeklyData}
+          keyExtractor={(item) => item.date}
+          renderItem={({ item }) => (
+            <View style={styles.row}>
+              <Text style={styles.leftText}>
+                {item.day} ({item.date})
+              </Text>
+              <Text style={styles.rightText}>
+                {formatDuration(item.total)} / {formatDuration(item.required)}{" "}
+                {item.met ? "✅" : "❌"}
+              </Text>
+            </View>
+          )}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Explore</ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image source={require('@/assets/images/react-logo.png')} style={{ alignSelf: 'center' }} />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Custom fonts">
-        <ThemedText>
-          Open <ThemedText type="defaultSemiBold">app/_layout.tsx</ThemedText> to see how to load{' '}
-          <ThemedText style={{ fontFamily: 'SpaceMono' }}>
-            custom fonts such as this one.
-          </ThemedText>
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/versions/latest/sdk/font">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful <ThemedText type="defaultSemiBold">react-native-reanimated</ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+        <View style={styles.totalContainer}>
+          <Text style={styles.totalText}>
+            Week Total: {formatDuration(totalHours)} / {formatDuration(requiredTotal)} {weekMet ? "✅" : "❌"}
+          </Text>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-});

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, Button, Alert, FlatList } from "react-native";
+import { View, Text, Button, Alert, FlatList, Dimensions, SafeAreaView, StyleSheet } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SQLite from "expo-sqlite";
 import dayjs from "dayjs";
@@ -10,6 +10,12 @@ type Punch = {
   checkOut: string | null;
   duration: number;
   date: string;
+};
+
+const formatDuration = (decimalHours: number): string => {
+  const hours = Math.floor(decimalHours);
+  const minutes = Math.round((decimalHours - hours) * 60);
+  return `${hours} hr ${minutes} min`;
 };
 
 export default function HomeScreen() {
@@ -96,30 +102,73 @@ export default function HomeScreen() {
     loadPunches(db);
   };
 
+  const { width } = Dimensions.get('window');
+  const isTablet = width > 600; // Simple breakpoint for tablets/larger screens
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: "#fff",
+    },
+    content: {
+      flex: 1,
+      padding: isTablet ? 40 : 20, // Larger padding on tablets
+    },
+    title: {
+      fontSize: isTablet ? 32 : 24, // Scale font sizes
+      fontWeight: "bold",
+      marginBottom: 10,
+    },
+    weeklyText: {
+      marginBottom: 10,
+      fontSize: isTablet ? 18 : 16,
+    },
+    buttonContainer: {
+      flexDirection: isTablet ? 'row' : 'column', // Side-by-side buttons on tablets
+      justifyContent: isTablet ? 'space-around' : 'flex-start',
+      marginBottom: 20,
+    },
+    buttonSpacer: {
+      marginVertical: isTablet ? 0 : 5,
+      marginHorizontal: isTablet ? 10 : 0,
+    },
+    historyTitle: {
+      marginTop: 20,
+      fontWeight: "bold",
+      fontSize: isTablet ? 20 : 18,
+    },
+    listItem: {
+      fontSize: isTablet ? 16 : 14,
+      marginVertical: 5,
+    },
+  });
+
   return (
-    <View style={{ flex: 1, padding: 20, backgroundColor: "#fff" }}>
-      <Text style={{ fontSize: 24, fontWeight: "bold", marginBottom: 10 }}>
-        NWU Time Tracker
-      </Text>
-      <Text style={{ marginBottom: 10 }}>Weekly Total: {weeklyHours.toFixed(2)} hours</Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>NWU Time Tracker</Text>
+        <Text style={styles.weeklyText}>Weekly Total: {formatDuration(weeklyHours)}</Text>
 
-      <Button title="Check In" onPress={handleCheckIn} />
-      <View style={{ marginVertical: 5 }} />
-      <Button title="Check Out" onPress={handleCheckOut} />
+        <View style={styles.buttonContainer}>
+          <Button title="Check In" onPress={handleCheckIn} />
+          <View style={styles.buttonSpacer} />
+          <Button title="Check Out" onPress={handleCheckOut} />
+        </View>
 
-      <Text style={{ marginTop: 20, fontWeight: "bold" }}>History</Text>
-      <FlatList
-        data={punches}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <Text>
-            {item.date} → In: {dayjs(item.checkIn).format("HH:mm")}
-            {item.checkOut
-              ? ` | Out: ${dayjs(item.checkOut).format("HH:mm")} | ${item.duration.toFixed(2)}h`
-              : " | Active"}
-          </Text>
-        )}
-      />
-    </View>
+        <Text style={styles.historyTitle}>History</Text>
+        <FlatList
+          data={punches}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <Text style={styles.listItem}>
+              {item.date} → In: {dayjs(item.checkIn).format("hh:mm A")}
+              {item.checkOut
+                ? ` | Out: ${dayjs(item.checkOut).format("hh:mm A")} | ${formatDuration(item.duration)}`
+                : " | Active"}
+            </Text>
+          )}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
