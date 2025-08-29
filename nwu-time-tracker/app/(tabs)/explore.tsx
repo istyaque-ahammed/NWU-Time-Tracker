@@ -15,12 +15,21 @@ const formatDuration = (decimalHours: number): string => {
   return `${hours} hr ${minutes} min`;
 };
 
+// Function to format date with day name
+const formatDateWithDay = (dateString: string): string => {
+  const date = dayjs(dateString);
+  return `${date.format("DD-MM-YYYY")}
+  ${date.format("dddd")}`;
+};
+
 export default function WeeklyReport() {
   const [weeklyData, setWeeklyData] = useState<
     { day: string; date: string; total: number; required: number; met: boolean }[]
   >([]);
   const [currentWeekStart, setCurrentWeekStart] = useState(dayjs().startOf("week").add(1, "day")); // Monday as state
   const [grouped, setGrouped] = useState<{ [key: string]: number }>({}); // Store grouped data once
+  const [weeklyMet, setWeeklyMet] = useState(false);
+  const [totalHours, setTotalHours] = useState(0);
 
   useEffect(() => {
     const loadData = async () => {
@@ -33,7 +42,7 @@ export default function WeeklyReport() {
       setGrouped(newGrouped);
     };
     loadData();
-  }, []); // Load once on mount
+  }, []);
 
   useEffect(() => {
     // Generate days based on currentWeekStart
@@ -49,12 +58,14 @@ export default function WeeklyReport() {
         met: total >= required,
       };
     });
+    
     setWeeklyData(days);
-  }, [currentWeekStart, grouped]); // Regenerate on week change or data load
-
-  const totalHours = weeklyData.reduce((acc, item) => acc + item.total, 0);
-  const requiredTotal = weeklyData.reduce((acc, item) => acc + item.required, 0);
-  const weekMet = weeklyData.every((item) => item.met); // True if all days met requirements
+    
+    // Calculate weekly totals
+    const hours = days.reduce((acc, item) => acc + item.total, 0);
+    setTotalHours(hours);
+    setWeeklyMet(hours >= 36);
+  }, [currentWeekStart, grouped]);
 
   const handlePreviousWeek = () => {
     setCurrentWeekStart(currentWeekStart.subtract(7, "day"));
@@ -62,14 +73,14 @@ export default function WeeklyReport() {
 
   const handleNextWeek = () => {
     const nextStart = currentWeekStart.add(7, "day");
-    // Optional: Prevent navigating too far into future
-    if (nextStart.isBefore(dayjs().startOf("week").add(1, "day").add(7, "day"))) {
+    // Prevent navigating too far into future
+    if (nextStart.isBefore(dayjs().add(1, "week"))) {
       setCurrentWeekStart(nextStart);
     }
   };
 
   const { width } = Dimensions.get('window');
-  const isTablet = width > 600; // Simple breakpoint for tablets/larger screens
+  const isTablet = width > 600;
 
   const styles = StyleSheet.create({
     container: {
@@ -78,15 +89,19 @@ export default function WeeklyReport() {
     },
     content: {
       flex: 1,
-      padding: isTablet ? 40 : 20, // Larger padding on tablets
+      padding: isTablet ? 40 : 20,
     },
     title: {
-      fontSize: isTablet ? 32 : 24, // Scale font sizes
+      fontSize: isTablet ? 32 : 24,
       fontWeight: "bold",
       marginBottom: 10,
     },
+    weekTitle: {
+      fontSize: isTablet ? 18 : 16,
+      marginBottom: 10,
+    },
     navContainer: {
-      flexDirection: isTablet ? 'row' : 'column', // Side-by-side navigation on tablets
+      flexDirection: isTablet ? 'row' : 'column',
       justifyContent: isTablet ? 'space-around' : 'flex-start',
       marginBottom: 10,
     },
@@ -100,17 +115,17 @@ export default function WeeklyReport() {
       borderColor: "#ccc",
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center', // Align vertically
-      flexWrap: 'wrap', // Allow wrapping if needed on very narrow screens
+      alignItems: 'center',
+      flexWrap: 'wrap',
     },
     leftText: {
       fontSize: isTablet ? 16 : 14,
-      flex: 1, // Allow left text to take available space and wrap
-      marginRight: 10, // Space between left and right
+      flex: 1,
+      marginRight: 10,
     },
     rightText: {
       fontSize: isTablet ? 16 : 14,
-      textAlign: 'right', // Align right text to the end
+      textAlign: 'right',
     },
     totalContainer: {
       marginTop: 20,
@@ -128,18 +143,23 @@ export default function WeeklyReport() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.title}>Weekly Report</Text>
+        <Text style={styles.weekTitle}>
+          Week: {currentWeekStart.format("MMM D")} - {currentWeekStart.add(5, 'day').format("MMM D")}
+        </Text>
+        
         <View style={styles.navContainer}>
           <Button title="Previous Week" onPress={handlePreviousWeek} />
           <View style={styles.navButtonSpacer} />
           <Button title="Next Week" onPress={handleNextWeek} />
         </View>
+        
         <FlatList
           data={weeklyData}
           keyExtractor={(item) => item.date}
           renderItem={({ item }) => (
             <View style={styles.row}>
               <Text style={styles.leftText}>
-                {item.day} ({item.date})
+                {formatDateWithDay(item.date)}
               </Text>
               <Text style={styles.rightText}>
                 {formatDuration(item.total)} / {formatDuration(item.required)}{" "}
@@ -148,9 +168,10 @@ export default function WeeklyReport() {
             </View>
           )}
         />
+        
         <View style={styles.totalContainer}>
           <Text style={styles.totalText}>
-            Week Total: {formatDuration(totalHours)} / {formatDuration(requiredTotal)} {weekMet ? "✅" : "❌"}
+            Week Total: {formatDuration(totalHours)} / 36 hours {weeklyMet ? "✅" : "❌"}
           </Text>
         </View>
       </View>
