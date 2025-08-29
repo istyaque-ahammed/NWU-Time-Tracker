@@ -35,35 +35,46 @@ export default function WeeklyReport() {
   const [grouped, setGrouped] = useState<{ [key: string]: number }>({});
   const [weeklyMet, setWeeklyMet] = useState(false);
   const [totalHours, setTotalHours] = useState(0);
+  const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
 
-  // 🔄 Reload DB whenever screen gains focus
+  // Initialize database once
+  useEffect(() => {
+    const initDb = async () => {
+      try {
+        const database = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
+        setDb(database);
+      } catch (error) {
+        console.error("Error initializing database:", error);
+      }
+    };
+    initDb();
+  }, []);
+
+  // Load data function
+  const loadData = useCallback(async () => {
+    if (!db) return;
+    
+    try {
+      const rows = await db.getAllAsync("SELECT * FROM punches");
+      const newGrouped: { [key: string]: number } = {};
+      
+      rows.forEach((p: any) => {
+        newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
+      });
+      
+      setGrouped(newGrouped);
+    } catch (error) {
+      console.error("Error loading data:", error);
+    }
+  }, [db]);
+
+  // 🔄 Reload data whenever screen gains focus or db changes
   useFocusEffect(
     useCallback(() => {
-      let isMounted = true;
-
-      const loadData = async () => {
-        try {
-          const db = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
-          const rows = await db.getAllAsync("SELECT * FROM punches");
-          
-          if (isMounted) {
-            const newGrouped: { [key: string]: number } = {};
-            rows.forEach((p: any) => {
-              newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
-            });
-            setGrouped(newGrouped);
-          }
-        } catch (error) {
-          console.error("Error loading data:", error);
-        }
-      };
-
-      loadData();
-
-      return () => {
-        isMounted = false;
-      };
-    }, [])
+      if (db) {
+        loadData();
+      }
+    }, [db, loadData])
   );
 
   // 🔧 Recalculate weekly data whenever grouped or currentWeekStart changes
@@ -224,6 +235,11 @@ export default function WeeklyReport() {
       textAlign: 'center',
       marginTop: 10,
     },
+    loadingText: {
+      textAlign: 'center',
+      color: isDark ? '#ccc' : '#7f8c8d',
+      marginBottom: 16,
+    },
   });
 
   const weeklyProgress = totalHours / 36;
@@ -255,47 +271,53 @@ export default function WeeklyReport() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.statsCard}>
-          <View style={styles.progressContainer}>
-            <Progress.Circle
-              size={80}
-              progress={weeklyProgress}
-              showsText={true}
-              color={weeklyMet ? '#27ae60' : '#e74c3c'}
-              formatText={() => `${Math.round(weeklyProgress * 100)}%`}
-            />
-          </View>
-          <Text style={[
-            styles.totalText,
-            weeklyMet ? styles.metRequirement : styles.missedRequirement
-          ]}>
-            Week Total: {formatDuration(totalHours)} / 36h
-          </Text>
-        </View>
-        
-        <View style={styles.listContainer}>
-          {weeklyData.length > 0 ? (
-            weeklyData.map((item, index) => (
-              <View key={item.date} style={[styles.row, index === weeklyData.length - 1 && styles.rowLast]}>
-                <View style={styles.leftContainer}>
-                  <Text style={styles.dayHeader}>{item.day.substring(0, 3)}</Text>
-                  <Text style={styles.dateText}>{formatDateWithDay(item.date)}</Text>
-                </View>
-                <Text style={[
-                  styles.hoursText,
-                  item.met ? styles.metRequirement : styles.missedRequirement
-                ]}>
-                  {formatDuration(item.total)} / {item.required}h
-                </Text>
+        {!db ? (
+          <Text style={styles.loadingText}>Loading database...</Text>
+        ) : (
+          <>
+            <View style={styles.statsCard}>
+              <View style={styles.progressContainer}>
+                <Progress.Circle
+                  size={80}
+                  progress={weeklyProgress}
+                  showsText={true}
+                  color={weeklyMet ? '#27ae60' : '#e74c3c'}
+                  formatText={() => `${Math.round(weeklyProgress * 100)}%`}
+                />
               </View>
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons name="calendar-outline" size={48} color={isDark ? '#444' : '#bdc3c7'} />
-              <Text style={styles.emptyStateText}>No data available for this week</Text>
+              <Text style={[
+                styles.totalText,
+                weeklyMet ? styles.metRequirement : styles.missedRequirement
+              ]}>
+                Week Total: {formatDuration(totalHours)} / 36h
+              </Text>
             </View>
-          )}
-        </View>
+            
+            <View style={styles.listContainer}>
+              {weeklyData.length > 0 ? (
+                weeklyData.map((item, index) => (
+                  <View key={item.date} style={[styles.row, index === weeklyData.length - 1 && styles.rowLast]}>
+                    <View style={styles.leftContainer}>
+                      <Text style={styles.dayHeader}>{item.day.substring(0, 3)}</Text>
+                      <Text style={styles.dateText}>{formatDateWithDay(item.date)}</Text>
+                    </View>
+                    <Text style={[
+                      styles.hoursText,
+                      item.met ? styles.metRequirement : styles.missedRequirement
+                    ]}>
+                      {formatDuration(item.total)} / {item.required}h
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="calendar-outline" size={48} color={isDark ? '#444' : '#bdc3c7'} />
+                  <Text style={styles.emptyStateText}>No data available for this week</Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

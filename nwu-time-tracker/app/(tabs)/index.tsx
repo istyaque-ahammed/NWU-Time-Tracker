@@ -54,6 +54,7 @@ export default function HomeScreen() {
   const [dailyHours, setDailyHours] = useState<number>(0);
   const [expectedCheckOut, setExpectedCheckOut] = useState<string | null>(null);
   const [hasActiveCheckIn, setHasActiveCheckIn] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState(dayjs());
   const reminderShownRef = useRef(false);
 
   useEffect(() => {
@@ -69,19 +70,46 @@ export default function HomeScreen() {
         );
       `);
       setDb(database);
-      loadPunches(database);
+      loadPunches(database, currentTime);
     };
     initDb();
   }, []);
 
-  const loadPunches = async (database: any) => {
+  // Update current time every second for real-time updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(dayjs());
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Reload punches when currentTime changes (for real-time updates)
+  useEffect(() => {
+    if (db) {
+      loadPunches(db, currentTime);
+    }
+  }, [currentTime, db]);
+
+  const loadPunches = async (database: any, currentTime: dayjs.Dayjs) => {
     const rows = await database.getAllAsync("SELECT * FROM punches ORDER BY id DESC");
     setPunches(rows);
 
     // Calculate daily hours for today
     const today = dayjs().format("YYYY-MM-DD");
-    const todayPunch = rows.find((p: Punch) => p.date === today && p.checkOut);
-    const todayHours = todayPunch ? todayPunch.duration : 0;
+    const todayPunch = rows.find((p: Punch) => p.date === today);
+    let todayHours = 0;
+
+    if (todayPunch) {
+      if (todayPunch.checkOut) {
+        // Already checked out - use stored duration
+        todayHours = todayPunch.duration;
+      } else {
+        // Active check-in - calculate current duration in real-time
+        const checkInTime = dayjs(todayPunch.checkIn);
+        todayHours = currentTime.diff(checkInTime, "hour", true);
+      }
+    }
+
     setDailyHours(todayHours);
 
     const activePunch = rows.find((p: Punch) => !p.checkOut);
@@ -153,7 +181,7 @@ export default function HomeScreen() {
       "INSERT INTO punches (date, checkIn, checkOut, duration) VALUES (?, ?, ?, ?)",
       [now.format("YYYY-MM-DD"), now.toISOString(), null, 0]
     );
-    loadPunches(db);
+    loadPunches(db, currentTime);
     
     const dayOfWeek = now.day();
     const requiredHours = dayOfWeek === 5 ? 4 : 5;
@@ -177,7 +205,7 @@ export default function HomeScreen() {
       "UPDATE punches SET checkOut = ?, duration = ? WHERE id = ?",
       [now.toISOString(), duration, latest.id]
     );
-    loadPunches(db);
+    loadPunches(db, currentTime);
     
     const dayOfWeek = dayjs(latest.date).day();
     const requiredHours = dayOfWeek === 5 ? 4 : 5;
@@ -195,7 +223,7 @@ export default function HomeScreen() {
         onPress: async () => {
           try {
             await db.runAsync("DELETE FROM punches");
-            loadPunches(db);
+            loadPunches(db, currentTime);
             Alert.alert("Success", "All data has been cleared.");
           } catch (error) {
             Alert.alert("Error", "Failed to clear data.");
@@ -346,6 +374,12 @@ export default function HomeScreen() {
       color: isDark ? '#ccc' : '#7f8c8d',
       marginTop: 5,
     },
+    realtimeIndicator: {
+      fontSize: 12,
+      color: '#3498db',
+      marginTop: 5,
+      fontStyle: 'italic',
+    },
   });
 
   return (
@@ -354,14 +388,15 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <Text style={styles.headerText}>NWU Time Tracker</Text>
           <Image 
-            source={require("./nwu_logo.png")} // 👈 Put your logo in assets
+            source={require("./nwu_logo.png")}
             style={styles.logo}
             resizeMode="contain"
           />
+  
         </View>
 
         <View style={styles.statsCard}>
-          <Progress.Circle
+          <Progress.Circle          
             size={80}
             progress={dailyProgress}
             showsText={true}
@@ -378,6 +413,9 @@ export default function HomeScreen() {
           <Text style={styles.progressLabel}>
             {dayjs().format("dddd")} Requirement
           </Text>
+          {hasActiveCheckIn && (
+            <Text style={styles.realtimeIndicator}>Updating in real-time</Text>
+          )}
           {expectedCheckOut && (
             <Text style={styles.expectedTime}>
               Expected Check Out: {expectedCheckOut}
@@ -432,11 +470,16 @@ export default function HomeScreen() {
                   </Text>
                 </>
               ) : (
-                <View style={styles.timeContainer}>
-                  <Text style={styles.timeText}>In: {dayjs(item.checkIn).format("hh:mm A")}</Text>
-                  <Text style={styles.separator}>|</Text>
-                  <Text style={[styles.timeText, {color: '#3498db'}]}>Status: Active</Text>
-                </View>
+                <>
+                  <View style={styles.timeContainer}>
+                    <Text style={styles.timeText}>In: {dayjs(item.checkIn).format("hh:mm A")}</Text>
+                    <Text style={styles.separator}>|</Text>
+                    <Text style={[styles.timeText, {color: '#3498db'}]}>Status: Active</Text>
+                  </View>
+                  <Text style={[styles.durationText, {color: '#3498db'}]}>
+                    Current: {formatDuration(currentTime.diff(dayjs(item.checkIn), "hour", true))}
+                  </Text>
+                </>
               )}
             </View>
           )}
@@ -445,3 +488,9 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
+
+
+
+/*<TouchableOpacity onPress={clearDatabase} style={styles.iconButton}>
+  <Ionicons name="trash-outline" size={24} color={isDark ? '#fff' : "white"} />
+  </TouchableOpacity>*/
