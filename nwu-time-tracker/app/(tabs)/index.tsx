@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, Button, Alert, FlatList, Dimensions, SafeAreaView, StyleSheet } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, Button, Alert, FlatList, Dimensions, SafeAreaView, StyleSheet, TouchableOpacity } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SQLite from "expo-sqlite";
 import dayjs from "dayjs";
@@ -39,6 +39,7 @@ export default function HomeScreen() {
   const [weeklyHours, setWeeklyHours] = useState<number>(0);
   const [expectedCheckOut, setExpectedCheckOut] = useState<string | null>(null);
   const [hasActiveCheckIn, setHasActiveCheckIn] = useState<boolean>(false);
+  const reminderShownRef = useRef(false); // Track if reminder has been shown
 
   useEffect(() => {
     const initDb = async () => {
@@ -85,18 +86,23 @@ export default function HomeScreen() {
     }
   };
 
-  // Check if daily requirements are met
+  // Check if daily requirements are met - FIXED: Only check once and only for today
   useEffect(() => {
     const checkToday = async () => {
-      const today = dayjs().format("YYYY-MM-DD");
-      const todayPunch = punches.find(p => p.date === today);
+      // Only check once per app session
+      if (reminderShownRef.current) return;
       
-      if (todayPunch && todayPunch.checkOut) {
+      const today = dayjs().format("YYYY-MM-DD");
+      const todayPunch = punches.find(p => p.date === today && p.checkOut);
+      
+      // Only show reminder if there's a completed punch for today that doesn't meet requirements
+      if (todayPunch) {
         const hours = todayPunch.duration || 0;
         const dayOfWeek = dayjs().day();
         const required = dayOfWeek === 5 ? 4 : 5; // Friday is 5 in dayjs (0=Sunday)
         
         if (hours < required) {
+          reminderShownRef.current = true; // Mark as shown
           Alert.alert(
             "Reminder", 
             `You have ${formatDuration(hours)} today but need ${formatDuration(required)}`
@@ -105,10 +111,11 @@ export default function HomeScreen() {
       }
     };
     
-    if (punches.length > 0) {
+    // Only check if we have punches and the app is already initialized
+    if (punches.length > 0 && db) {
       checkToday();
     }
-  }, [punches]);
+  }, [punches, db]);
 
   const handleAuth = async () => {
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
@@ -173,16 +180,47 @@ export default function HomeScreen() {
     );
     loadPunches(db);
     
-    // Check if requirement was met
+    // Check if requirement was met - FIXED: Use color coding instead of symbols
     const dayOfWeek = dayjs(latest.date).day();
     const requiredHours = dayOfWeek === 5 ? 4 : 5;
     const metRequirement = duration >= requiredHours;
     
     Alert.alert(
       "Checked Out Successfully",
-      `You worked for ${formatDuration(duration)} today.\nRequirement: ${requiredHours} hours\nStatus: ${metRequirement ? "✅ Met" : "❌ Not Met"}`
+      `You worked for ${formatDuration(duration)} today.\nRequirement: ${requiredHours} hours\nStatus: ${metRequirement ? "Met" : "Not Met"}`,
+      [{ text: "OK" }]
     );
   };
+
+  // Function to clear all data from database
+  const clearDatabase = async () => {
+    Alert.alert(
+      "Clear All Data",
+      "Are you sure you want to delete all time tracking data? This action cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Delete All", 
+          onPress: async () => {
+            try {
+              await db.runAsync("DELETE FROM punches");
+              loadPunches(db);
+              Alert.alert("Success", "All data has been cleared.");
+            } catch (error) {
+              Alert.alert("Error", "Failed to clear data.");
+            }
+          },
+          style: "destructive"
+        }
+      ]
+    );
+  };
+
+  // Get only the last 15 punches for display
+  const recentPunches = punches.slice(0, 15);
 
   const { width } = Dimensions.get('window');
   const isTablet = width > 600;
@@ -204,6 +242,7 @@ export default function HomeScreen() {
     weeklyText: {
       marginBottom: 10,
       fontSize: isTablet ? 18 : 16,
+      fontWeight: "bold",
     },
     expectedTime: {
       marginBottom: 15,
@@ -225,6 +264,12 @@ export default function HomeScreen() {
       fontWeight: "bold",
       fontSize: isTablet ? 20 : 18,
     },
+    historyLimit: {
+      fontSize: isTablet ? 14 : 12,
+      color: "#666",
+      marginBottom: 10,
+      fontStyle: "italic",
+    },
     listItem: {
       padding: 10,
       borderBottomWidth: 1,
@@ -236,9 +281,20 @@ export default function HomeScreen() {
       fontSize: isTablet ? 16 : 14,
       marginBottom: 5,
     },
+    timeContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 3,
+    },
     timeText: {
       fontSize: isTablet ? 14 : 12,
-      marginBottom: 3,
+    },
+    separator: {
+      marginHorizontal: 5,
+      fontSize: isTablet ? 14 : 12,
+    },
+    durationText: {
+      fontSize: isTablet ? 14 : 12,
     },
     metRequirement: {
       color: "green",
@@ -248,14 +304,31 @@ export default function HomeScreen() {
       color: "red",
       fontWeight: "bold",
     },
+    clearButton: {
+      marginTop: 10,
+      padding: 10,
+      backgroundColor: "#ff4444",
+      borderRadius: 5,
+      alignItems: "center",
+    },
+    clearButtonText: {
+      color: "white",
+      fontWeight: "bold",
+    },
   });
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>NWU Time Tracker</Text>
-        <Text style={styles.weeklyText}>
-          Weekly Total: {formatDuration(weeklyHours)} / 36 hours {weeklyHours >= 36 ? "✅" : "❌"}
+        <TouchableOpacity onLongPress={clearDatabase}>
+          <Text style={styles.title}>NWU Time Tracker</Text>
+        </TouchableOpacity>
+        
+        <Text style={[
+          styles.weeklyText,
+          weeklyHours >= 36 ? styles.metRequirement : styles.missedRequirement
+        ]}>
+          Weekly Total: {formatDuration(weeklyHours)} / 36 hours
         </Text>
 
         {expectedCheckOut && (
@@ -278,33 +351,49 @@ export default function HomeScreen() {
           />
         </View>
 
+        {/* Clear Data Button - Uncomment to make visible */}
+        {/* <TouchableOpacity style={styles.clearButton} onPress={clearDatabase}>
+          <Text style={styles.clearButtonText}>Clear All Data</Text>
+        </TouchableOpacity> */}
+
         <Text style={styles.historyTitle}>History</Text>
+        <Text style={styles.historyLimit}>Showing last 15 entries</Text>
         <FlatList
-          data={punches}
+          data={recentPunches}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
             <View style={styles.listItem}>
               <Text style={styles.listDate}>
                 {formatDateWithDay(item.date)}
               </Text>
-              <Text style={styles.timeText}>
-                In: {dayjs(item.checkIn).format("hh:mm A")}
-              </Text>
+              
               {item.checkOut ? (
                 <>
-                  <Text style={styles.timeText}>
-                    Out: {dayjs(item.checkOut).format("hh:mm A")}
-                  </Text>
+                  <View style={styles.timeContainer}>
+                    <Text style={styles.timeText}>
+                      In: {dayjs(item.checkIn).format("hh:mm A")}
+                    </Text>
+                    <Text style={styles.separator}>|</Text>
+                    <Text style={styles.timeText}>
+                      Out: {dayjs(item.checkOut).format("hh:mm A")}
+                    </Text>
+                  </View>
                   <Text style={
                     item.duration >= (dayjs(item.date).day() === 5 ? 4 : 5) 
-                      ? styles.metRequirement 
-                      : styles.missedRequirement
+                      ? [styles.durationText, styles.metRequirement]
+                      : [styles.durationText, styles.missedRequirement]
                   }>
                     Duration: {formatDuration(item.duration)}
                   </Text>
                 </>
               ) : (
-                <Text style={styles.timeText}>Status: Active</Text>
+                <View style={styles.timeContainer}>
+                  <Text style={styles.timeText}>
+                    In: {dayjs(item.checkIn).format("hh:mm A")}
+                  </Text>
+                  <Text style={styles.separator}>|</Text>
+                  <Text style={styles.timeText}>Status: Active</Text>
+                </View>
               )}
             </View>
           )}

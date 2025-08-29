@@ -18,8 +18,7 @@ const formatDuration = (decimalHours: number): string => {
 // Function to format date with day name
 const formatDateWithDay = (dateString: string): string => {
   const date = dayjs(dateString);
-  return `${date.format("DD-MM-YYYY")}
-  ${date.format("dddd")}`;
+  return `${date.format("DD-MM-YYYY")} | ${date.format("dddd")}`;
 };
 
 export default function WeeklyReport() {
@@ -32,17 +31,31 @@ export default function WeeklyReport() {
   const [totalHours, setTotalHours] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+    
     const loadData = async () => {
-      const db = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
-      const rows = await db.getAllAsync("SELECT * FROM punches");
-      const newGrouped: { [key: string]: number } = {};
-      rows.forEach((p: Punch) => {
-        newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
-      });
-      setGrouped(newGrouped);
+      try {
+        const db = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
+        const rows = await db.getAllAsync("SELECT * FROM punches");
+        
+        if (isMounted) {
+          const newGrouped: { [key: string]: number } = {};
+          rows.forEach((p: any) => {
+            newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
+          });
+          setGrouped(newGrouped);
+        }
+      } catch (error) {
+        console.error("Error loading data:", error);
+      }
     };
+    
     loadData();
-  }, []);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty dependency array to run only once on mount
 
   useEffect(() => {
     // Generate days based on currentWeekStart
@@ -132,10 +145,21 @@ export default function WeeklyReport() {
       padding: 10,
       borderTopWidth: 1,
       borderColor: "#ccc",
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     totalText: {
       fontWeight: "bold",
       fontSize: isTablet ? 18 : 16,
+    },
+    metRequirement: {
+      color: "green",
+      fontWeight: "bold",
+    },
+    missedRequirement: {
+      color: "red",
+      fontWeight: "bold",
     },
   });
 
@@ -161,17 +185,22 @@ export default function WeeklyReport() {
               <Text style={styles.leftText}>
                 {formatDateWithDay(item.date)}
               </Text>
-              <Text style={styles.rightText}>
-                {formatDuration(item.total)} / {formatDuration(item.required)}{" "}
-                {item.met ? "✅" : "❌"}
+              <Text style={[
+                styles.rightText,
+                item.met ? styles.metRequirement : styles.missedRequirement
+              ]}>
+                {formatDuration(item.total)} / {formatDuration(item.required)}
               </Text>
             </View>
           )}
         />
         
         <View style={styles.totalContainer}>
-          <Text style={styles.totalText}>
-            Week Total: {formatDuration(totalHours)} / 36 hours {weeklyMet ? "✅" : "❌"}
+          <Text style={[
+            styles.totalText,
+            weeklyMet ? styles.metRequirement : styles.missedRequirement
+          ]}>
+            Week Total: {formatDuration(totalHours)} / 36 hours
           </Text>
         </View>
       </View>
