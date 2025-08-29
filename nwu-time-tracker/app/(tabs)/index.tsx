@@ -79,6 +79,7 @@ export default function HomeScreen() {
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(dayjs());
+    }, 1000); // Update every second
 
     return () => clearInterval(interval);
   }, []);
