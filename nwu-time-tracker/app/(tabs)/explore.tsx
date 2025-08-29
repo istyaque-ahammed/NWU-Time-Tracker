@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, Dimensions, SafeAreaView, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, Dimensions, SafeAreaView, StyleSheet, TouchableOpacity, ScrollView, useColorScheme } from "react-native";
 import * as SQLite from "expo-sqlite";
 import dayjs from "dayjs";
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as Progress from 'react-native-progress';
+import { useFocusEffect } from "@react-navigation/native";
 
 type Punch = {
   id: number;
@@ -21,6 +25,9 @@ const formatDateWithDay = (dateString: string): string => {
 };
 
 export default function WeeklyReport() {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
+
   const [weeklyData, setWeeklyData] = useState<
     { day: string; date: string; total: number; required: number; met: boolean }[]
   >([]);
@@ -29,33 +36,37 @@ export default function WeeklyReport() {
   const [weeklyMet, setWeeklyMet] = useState(false);
   const [totalHours, setTotalHours] = useState(0);
 
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadData = async () => {
-      try {
-        const db = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
-        const rows = await db.getAllAsync("SELECT * FROM punches");
-        
-        if (isMounted) {
-          const newGrouped: { [key: string]: number } = {};
-          rows.forEach((p: any) => {
-            newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
-          });
-          setGrouped(newGrouped);
-        }
-      } catch (error) {
-        console.error("Error loading data:", error);
-      }
-    };
-    
-    loadData();
-    
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  // 🔄 Reload DB whenever screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
 
+      const loadData = async () => {
+        try {
+          const db = await SQLite.openDatabaseAsync("nwu_time_tracker.db");
+          const rows = await db.getAllAsync("SELECT * FROM punches");
+          
+          if (isMounted) {
+            const newGrouped: { [key: string]: number } = {};
+            rows.forEach((p: any) => {
+              newGrouped[p.date] = (newGrouped[p.date] || 0) + (p.duration || 0);
+            });
+            setGrouped(newGrouped);
+          }
+        } catch (error) {
+          console.error("Error loading data:", error);
+        }
+      };
+
+      loadData();
+
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
+
+  // 🔧 Recalculate weekly data whenever grouped or currentWeekStart changes
   useEffect(() => {
     const days = Array.from({ length: 6 }).map((_, i) => {
       const date = currentWeekStart.add(i, "day");
@@ -69,18 +80,20 @@ export default function WeeklyReport() {
         met: total >= required,
       };
     });
-    
+
     setWeeklyData(days);
     const hours = days.reduce((acc, item) => acc + item.total, 0);
     setTotalHours(hours);
     setWeeklyMet(hours >= 36);
   }, [currentWeekStart, grouped]);
 
-  const handlePreviousWeek = () => {
+  const handlePreviousWeek = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setCurrentWeekStart(currentWeekStart.subtract(7, "day"));
   };
 
-  const handleNextWeek = () => {
+  const handleNextWeek = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const nextStart = currentWeekStart.add(7, "day");
     if (nextStart.isBefore(dayjs().add(1, "week"))) {
       setCurrentWeekStart(nextStart);
@@ -93,27 +106,29 @@ export default function WeeklyReport() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: "#f8f9fa",
+      backgroundColor: isDark ? '#121212' : "#f8f9fa",
     },
     content: {
       flex: 1,
       padding: isTablet ? 20 : 16,
     },
     header: {
-      backgroundColor: '#2c3e50',
+      backgroundColor: isDark ? '#1e1e1e' : '#2c3e50',
       padding: 20,
       borderRadius: 15,
+      marginTop: 20,
       marginBottom: 16,
+      alignItems: 'center',
     },
     title: {
       fontSize: 22,
       fontWeight: 'bold',
-      color: 'white',
+      color: isDark ? '#fff' : 'white',
       textAlign: 'center',
     },
     weekTitle: {
       fontSize: 16,
-      color: '#ecf0f1',
+      color: isDark ? '#ccc' : '#ecf0f1',
       textAlign: 'center',
       marginTop: 5,
     },
@@ -124,64 +139,74 @@ export default function WeeklyReport() {
       gap: 12,
     },
     navButton: {
-      backgroundColor: '#3498db',
-      padding: 12,
-      borderRadius: 10,
+      backgroundColor: isDark ? '#2d2d2d' : '#3498db',
+      padding: 16,
+      borderRadius: 12,
       flex: 1,
-      minWidth: 120,
       alignItems: 'center',
+      minHeight: 50,
+      justifyContent: 'center',
     },
     navButtonText: {
-      color: 'white',
+      color: isDark ? '#fff' : 'white',
       fontWeight: '600',
       fontSize: 14,
     },
+    statsCard: {
+      backgroundColor: isDark ? '#1e1e1e' : 'white',
+      borderRadius: 15,
+      padding: 20,
+      marginBottom: 16,
+      alignItems: 'center',
+      elevation: 2,
+    },
+    progressContainer: {
+      alignItems: 'center',
+      marginBottom: 15,
+    },
     listContainer: {
-      backgroundColor: 'white',
+      backgroundColor: isDark ? '#1e1e1e' : 'white',
       borderRadius: 15,
       padding: 16,
       marginBottom: 16,
-      flex: 1,
+      elevation: 2,
     },
     row: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: 12,
+      paddingVertical: 14,
       borderBottomWidth: 1,
-      borderBottomColor: '#ecf0f1',
+      borderBottomColor: isDark ? '#333' : '#ecf0f1',
     },
     rowLast: {
       borderBottomWidth: 0,
     },
-    leftText: {
-      fontSize: 15,
-      fontWeight: '500',
-      color: '#2c3e50',
+    leftContainer: {
       flex: 1,
     },
     dayHeader: {
       fontSize: 13,
       fontWeight: 'bold',
-      color: '#7f8c8d',
+      color: isDark ? '#888' : '#7f8c8d',
       marginBottom: 4,
     },
-    rightText: {
+    dateText: {
+      fontSize: 15,
+      fontWeight: '500',
+      color: isDark ? '#fff' : '#2c3e50',
+    },
+    hoursText: {
       fontSize: 15,
       fontWeight: '500',
       textAlign: 'right',
       minWidth: 100,
     },
-    totalContainer: {
-      backgroundColor: 'white',
-      padding: 16,
-      borderRadius: 15,
-      marginBottom: 16,
-    },
     totalText: {
       fontSize: 18,
       fontWeight: 'bold',
       textAlign: 'center',
+      color: isDark ? '#fff' : '#2c3e50',
     },
     metRequirement: {
       color: "#27ae60",
@@ -189,7 +214,19 @@ export default function WeeklyReport() {
     missedRequirement: {
       color: "#e74c3c",
     },
+    emptyState: {
+      alignItems: 'center',
+      padding: 40,
+    },
+    emptyStateText: {
+      fontSize: 16,
+      color: isDark ? '#888' : '#7f8c8d',
+      textAlign: 'center',
+      marginTop: 10,
+    },
   });
+
+  const weeklyProgress = totalHours / 36;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -202,38 +239,62 @@ export default function WeeklyReport() {
         </View>
         
         <View style={styles.navContainer}>
-          <TouchableOpacity style={styles.navButton} onPress={handlePreviousWeek}>
+          <TouchableOpacity 
+            style={styles.navButton} 
+            onPress={handlePreviousWeek}
+            accessibilityLabel="Previous Week"
+          >
             <Text style={styles.navButtonText}>Previous Week</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navButton} onPress={handleNextWeek}>
+          <TouchableOpacity 
+            style={styles.navButton} 
+            onPress={handleNextWeek}
+            accessibilityLabel="Next Week"
+          >
             <Text style={styles.navButtonText}>Next Week</Text>
           </TouchableOpacity>
         </View>
-        
-        <View style={styles.listContainer}>
-          {weeklyData.map((item, index) => (
-            <View key={item.date} style={[styles.row, index === weeklyData.length - 1 && styles.rowLast]}>
-              <View style={{flex: 1}}>
-                <Text style={styles.dayHeader}>{item.day.substring(0, 3)}</Text>
-                <Text style={styles.leftText}>{formatDateWithDay(item.date)}</Text>
-              </View>
-              <Text style={[
-                styles.rightText,
-                item.met ? styles.metRequirement : styles.missedRequirement
-              ]}>
-                {formatDuration(item.total)} / {item.required}h
-              </Text>
-            </View>
-          ))}
-        </View>
-        
-        <View style={styles.totalContainer}>
+
+        <View style={styles.statsCard}>
+          <View style={styles.progressContainer}>
+            <Progress.Circle
+              size={80}
+              progress={weeklyProgress}
+              showsText={true}
+              color={weeklyMet ? '#27ae60' : '#e74c3c'}
+              formatText={() => `${Math.round(weeklyProgress * 100)}%`}
+            />
+          </View>
           <Text style={[
             styles.totalText,
             weeklyMet ? styles.metRequirement : styles.missedRequirement
           ]}>
             Week Total: {formatDuration(totalHours)} / 36h
           </Text>
+        </View>
+        
+        <View style={styles.listContainer}>
+          {weeklyData.length > 0 ? (
+            weeklyData.map((item, index) => (
+              <View key={item.date} style={[styles.row, index === weeklyData.length - 1 && styles.rowLast]}>
+                <View style={styles.leftContainer}>
+                  <Text style={styles.dayHeader}>{item.day.substring(0, 3)}</Text>
+                  <Text style={styles.dateText}>{formatDateWithDay(item.date)}</Text>
+                </View>
+                <Text style={[
+                  styles.hoursText,
+                  item.met ? styles.metRequirement : styles.missedRequirement
+                ]}>
+                  {formatDuration(item.total)} / {item.required}h
+                </Text>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="calendar-outline" size={48} color={isDark ? '#444' : '#bdc3c7'} />
+              <Text style={styles.emptyStateText}>No data available for this week</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>

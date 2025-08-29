@@ -1,9 +1,23 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Alert, FlatList, Dimensions, SafeAreaView, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import { 
+  View, 
+  Text, 
+  Alert, 
+  FlatList, 
+  Dimensions, 
+  SafeAreaView, 
+  StyleSheet, 
+  TouchableOpacity, 
+  ScrollView, 
+  useColorScheme,
+  Image
+} from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SQLite from "expo-sqlite";
 import dayjs from "dayjs";
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as Progress from 'react-native-progress';
 
 type Punch = {
   id: number;
@@ -32,9 +46,12 @@ const getExpectedCheckOutTime = (checkInTime: string, dateString: string): strin
 };
 
 export default function HomeScreen() {
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
+
   const [db, setDb] = useState<any>(null);
   const [punches, setPunches] = useState<Punch[]>([]);
-  const [weeklyHours, setWeeklyHours] = useState<number>(0);
+  const [dailyHours, setDailyHours] = useState<number>(0);
   const [expectedCheckOut, setExpectedCheckOut] = useState<string | null>(null);
   const [hasActiveCheckIn, setHasActiveCheckIn] = useState<boolean>(false);
   const reminderShownRef = useRef(false);
@@ -61,15 +78,11 @@ export default function HomeScreen() {
     const rows = await database.getAllAsync("SELECT * FROM punches ORDER BY id DESC");
     setPunches(rows);
 
-    const startOfWeek = dayjs().startOf("week").add(1, "day");
-    const endOfWeek = startOfWeek.add(5, "day");
-    const weekly = rows
-      .filter((p: Punch) =>
-        dayjs(p.date).isAfter(startOfWeek.subtract(1, "day")) &&
-        dayjs(p.date).isBefore(endOfWeek.add(1, "day"))
-      )
-      .reduce((acc: number, p: Punch) => acc + (p.duration || 0), 0);
-    setWeeklyHours(weekly);
+    // Calculate daily hours for today
+    const today = dayjs().format("YYYY-MM-DD");
+    const todayPunch = rows.find((p: Punch) => p.date === today && p.checkOut);
+    const todayHours = todayPunch ? todayPunch.duration : 0;
+    setDailyHours(todayHours);
 
     const activePunch = rows.find((p: Punch) => !p.checkOut);
     if (activePunch) {
@@ -127,6 +140,7 @@ export default function HomeScreen() {
   };
 
   const handleCheckIn = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (hasActiveCheckIn) {
       Alert.alert("Already Checked In", "Please check out first before checking in again.");
       return;
@@ -149,6 +163,7 @@ export default function HomeScreen() {
   };
 
   const handleCheckOut = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const success = await handleAuth();
     if (!success) return;
     const latest = punches.find((p) => !p.checkOut);
@@ -172,6 +187,7 @@ export default function HomeScreen() {
   };
 
   const clearDatabase = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Alert.alert("Clear All Data", "Are you sure you want to delete all time tracking data?", [
       { text: "Cancel", style: "cancel" },
       { 
@@ -194,10 +210,15 @@ export default function HomeScreen() {
   const { width } = Dimensions.get('window');
   const isTablet = width > 600;
 
+  // Calculate today's required hours
+  const dayOfWeek = dayjs().day();
+  const requiredHoursToday = dayOfWeek === 5 ? 4 : 5;
+  const dailyProgress = dailyHours / requiredHoursToday;
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: "#f8f9fa",
+      backgroundColor: isDark ? '#121212' : "#f8f9fa",
     },
     content: {
       flex: 1,
@@ -207,25 +228,32 @@ export default function HomeScreen() {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      marginTop: 20,
       marginBottom: 20,
-      backgroundColor: '#2c3e50',
+      backgroundColor: isDark ? '#1e1e1e' : '#2c3e50',
       padding: 20,
       borderRadius: 15,
       elevation: 3,
     },
     headerText: {
-      color: 'white',
+      color: isDark ? '#fff' : 'white',
       fontSize: 22,
       fontWeight: 'bold',
     },
+    logo: {
+      width: 40,
+      height: 40,
+      marginLeft: 10,
+    },
     statsCard: {
-      backgroundColor: 'white',
+      backgroundColor: isDark ? '#1e1e1e' : 'white',
       padding: 20,
       borderRadius: 15,
       marginBottom: 20,
       elevation: 2,
+      alignItems: 'center',
     },
-    weeklyText: {
+    dailyText: {
       fontSize: 18,
       fontWeight: '600',
       marginBottom: 10,
@@ -265,15 +293,15 @@ export default function HomeScreen() {
       fontSize: 20,
       fontWeight: 'bold',
       marginBottom: 12,
-      color: '#2c3e50',
+      color: isDark ? '#fff' : '#2c3e50',
     },
     historyLimit: {
       fontSize: 14,
-      color: '#7f8c8d',
+      color: isDark ? '#ccc' : '#7f8c8d',
       marginBottom: 15,
     },
     listItem: {
-      backgroundColor: 'white',
+      backgroundColor: isDark ? '#1e1e1e' : 'white',
       padding: 16,
       borderRadius: 12,
       marginBottom: 10,
@@ -283,7 +311,7 @@ export default function HomeScreen() {
       fontWeight: '600',
       fontSize: 15,
       marginBottom: 8,
-      color: '#2c3e50',
+      color: isDark ? '#fff' : '#2c3e50',
     },
     timeContainer: {
       flexDirection: 'row',
@@ -293,12 +321,12 @@ export default function HomeScreen() {
     },
     timeText: {
       fontSize: 14,
-      color: '#34495e',
+      color: isDark ? '#ccc' : '#34495e',
     },
     separator: {
       marginHorizontal: 8,
       fontSize: 14,
-      color: '#bdc3c7',
+      color: isDark ? '#555' : '#bdc3c7',
     },
     durationText: {
       fontSize: 14,
@@ -313,6 +341,11 @@ export default function HomeScreen() {
     iconButton: {
       padding: 8,
     },
+    progressLabel: {
+      fontSize: 14,
+      color: isDark ? '#ccc' : '#7f8c8d',
+      marginTop: 5,
+    },
   });
 
   return (
@@ -320,17 +353,30 @@ export default function HomeScreen() {
       <ScrollView style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.headerText}>NWU Time Tracker</Text>
-          <TouchableOpacity onPress={clearDatabase} style={styles.iconButton}>
-            <Ionicons name="trash-outline" size={24} color="white" />
-          </TouchableOpacity>
+          <Image 
+            source={require("./nwu_logo.png")} // 👈 Put your logo in assets
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
 
         <View style={styles.statsCard}>
+          <Progress.Circle
+            size={80}
+            progress={dailyProgress}
+            showsText={true}
+            color={dailyHours >= requiredHoursToday ? '#27ae60' : '#e74c3c'}
+            formatText={() => `${Math.round((dailyHours / requiredHoursToday) * 100)}%`}
+            style={{ marginBottom: 10 }}
+          />
           <Text style={[
-            styles.weeklyText,
-            weeklyHours >= 36 ? styles.metRequirement : styles.missedRequirement
+            styles.dailyText,
+            dailyHours >= requiredHoursToday ? styles.metRequirement : styles.missedRequirement
           ]}>
-            Weekly Total: {formatDuration(weeklyHours)} / 36h
+            Today: {formatDuration(dailyHours)} / {requiredHoursToday}h
+          </Text>
+          <Text style={styles.progressLabel}>
+            {dayjs().format("dddd")} Requirement
           </Text>
           {expectedCheckOut && (
             <Text style={styles.expectedTime}>
@@ -344,6 +390,7 @@ export default function HomeScreen() {
             style={[styles.button, hasActiveCheckIn && styles.buttonDisabled]}
             onPress={handleCheckIn}
             disabled={hasActiveCheckIn}
+            accessibilityLabel="Check In Button"
           >
             <Text style={styles.buttonText}>Check In</Text>
           </TouchableOpacity>
@@ -351,6 +398,7 @@ export default function HomeScreen() {
             style={[styles.button, !hasActiveCheckIn && styles.buttonDisabled]}
             onPress={handleCheckOut}
             disabled={!hasActiveCheckIn}
+            accessibilityLabel="Check Out Button"
           >
             <Text style={styles.buttonText}>Check Out</Text>
           </TouchableOpacity>
