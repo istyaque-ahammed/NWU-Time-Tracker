@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Button, Alert, FlatList, Dimensions, SafeAreaView, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, Alert, FlatList, Dimensions, SafeAreaView, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SQLite from "expo-sqlite";
 import dayjs from "dayjs";
+import { Ionicons } from '@expo/vector-icons';
 
 type Punch = {
   id: number;
@@ -15,21 +16,18 @@ type Punch = {
 const formatDuration = (decimalHours: number): string => {
   const hours = Math.floor(decimalHours);
   const minutes = Math.round((decimalHours - hours) * 60);
-  return `${hours} hr ${minutes} min`;
+  return `${hours}h ${minutes}m`;
 };
 
-// Function to format date with day name
 const formatDateWithDay = (dateString: string): string => {
   const date = dayjs(dateString);
   return `${date.format("DD-MM-YYYY")} | ${date.format("dddd")}`;
 };
 
-// Function to calculate expected check out time
 const getExpectedCheckOutTime = (checkInTime: string, dateString: string): string => {
   const checkIn = dayjs(checkInTime);
   const dayOfWeek = dayjs(dateString).day();
-  const requiredHours = dayOfWeek === 5 ? 4 : 5; // Friday is 5 in dayjs (0=Sunday)
-  
+  const requiredHours = dayOfWeek === 5 ? 4 : 5;
   return checkIn.add(requiredHours, 'hour').format("hh:mm A");
 };
 
@@ -39,7 +37,7 @@ export default function HomeScreen() {
   const [weeklyHours, setWeeklyHours] = useState<number>(0);
   const [expectedCheckOut, setExpectedCheckOut] = useState<string | null>(null);
   const [hasActiveCheckIn, setHasActiveCheckIn] = useState<boolean>(false);
-  const reminderShownRef = useRef(false); // Track if reminder has been shown
+  const reminderShownRef = useRef(false);
 
   useEffect(() => {
     const initDb = async () => {
@@ -63,9 +61,8 @@ export default function HomeScreen() {
     const rows = await database.getAllAsync("SELECT * FROM punches ORDER BY id DESC");
     setPunches(rows);
 
-    // Calculate weekly hours
-    const startOfWeek = dayjs().startOf("week").add(1, "day"); // Monday
-    const endOfWeek = startOfWeek.add(5, "day"); // Saturday
+    const startOfWeek = dayjs().startOf("week").add(1, "day");
+    const endOfWeek = startOfWeek.add(5, "day");
     const weekly = rows
       .filter((p: Punch) =>
         dayjs(p.date).isAfter(startOfWeek.subtract(1, "day")) &&
@@ -74,7 +71,6 @@ export default function HomeScreen() {
       .reduce((acc: number, p: Punch) => acc + (p.duration || 0), 0);
     setWeeklyHours(weekly);
 
-    // Check if there's an active check-in and calculate expected check out time
     const activePunch = rows.find((p: Punch) => !p.checkOut);
     if (activePunch) {
       const expectedTime = getExpectedCheckOutTime(activePunch.checkIn, activePunch.date);
@@ -86,23 +82,20 @@ export default function HomeScreen() {
     }
   };
 
-  // Check if daily requirements are met - FIXED: Only check once and only for today
   useEffect(() => {
     const checkToday = async () => {
-      // Only check once per app session
       if (reminderShownRef.current) return;
       
       const today = dayjs().format("YYYY-MM-DD");
       const todayPunch = punches.find(p => p.date === today && p.checkOut);
       
-      // Only show reminder if there's a completed punch for today that doesn't meet requirements
       if (todayPunch) {
         const hours = todayPunch.duration || 0;
         const dayOfWeek = dayjs().day();
-        const required = dayOfWeek === 5 ? 4 : 5; // Friday is 5 in dayjs (0=Sunday)
+        const required = dayOfWeek === 5 ? 4 : 5;
         
         if (hours < required) {
-          reminderShownRef.current = true; // Mark as shown
+          reminderShownRef.current = true;
           Alert.alert(
             "Reminder", 
             `You have ${formatDuration(hours)} today but need ${formatDuration(required)}`
@@ -111,7 +104,6 @@ export default function HomeScreen() {
       }
     };
     
-    // Only check if we have punches and the app is already initialized
     if (punches.length > 0 && db) {
       checkToday();
     }
@@ -135,12 +127,8 @@ export default function HomeScreen() {
   };
 
   const handleCheckIn = async () => {
-    // Prevent duplicate check-in
     if (hasActiveCheckIn) {
-      Alert.alert(
-        "Already Checked In",
-        "You already have an active check-in. Please check out first before checking in again."
-      );
+      Alert.alert("Already Checked In", "Please check out first before checking in again.");
       return;
     }
     
@@ -153,15 +141,11 @@ export default function HomeScreen() {
     );
     loadPunches(db);
     
-    // Show expected check out time after check in
     const dayOfWeek = now.day();
     const requiredHours = dayOfWeek === 5 ? 4 : 5;
     const expectedTime = now.add(requiredHours, 'hour').format("hh:mm A");
     
-    Alert.alert(
-      "Checked In Successfully",
-      `You need to complete ${requiredHours} hours today.\nExpected check out time: ${expectedTime}`
-    );
+    Alert.alert("Checked In Successfully", `You need to complete ${requiredHours} hours today.\nExpected check out time: ${expectedTime}`);
   };
 
   const handleCheckOut = async () => {
@@ -180,225 +164,236 @@ export default function HomeScreen() {
     );
     loadPunches(db);
     
-    // Check if requirement was met - FIXED: Use color coding instead of symbols
     const dayOfWeek = dayjs(latest.date).day();
     const requiredHours = dayOfWeek === 5 ? 4 : 5;
     const metRequirement = duration >= requiredHours;
     
-    Alert.alert(
-      "Checked Out Successfully",
-      `You worked for ${formatDuration(duration)} today.\nRequirement: ${requiredHours} hours\nStatus: ${metRequirement ? "Met" : "Not Met"}`,
-      [{ text: "OK" }]
-    );
+    Alert.alert("Checked Out Successfully", `You worked for ${formatDuration(duration)} today.\nRequirement: ${requiredHours} hours\nStatus: ${metRequirement ? "Met" : "Not Met"}`);
   };
 
-  // Function to clear all data from database
   const clearDatabase = async () => {
-    Alert.alert(
-      "Clear All Data",
-      "Are you sure you want to delete all time tracking data? This action cannot be undone.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
+    Alert.alert("Clear All Data", "Are you sure you want to delete all time tracking data?", [
+      { text: "Cancel", style: "cancel" },
+      { 
+        text: "Delete All", 
+        onPress: async () => {
+          try {
+            await db.runAsync("DELETE FROM punches");
+            loadPunches(db);
+            Alert.alert("Success", "All data has been cleared.");
+          } catch (error) {
+            Alert.alert("Error", "Failed to clear data.");
+          }
         },
-        { 
-          text: "Delete All", 
-          onPress: async () => {
-            try {
-              await db.runAsync("DELETE FROM punches");
-              loadPunches(db);
-              Alert.alert("Success", "All data has been cleared.");
-            } catch (error) {
-              Alert.alert("Error", "Failed to clear data.");
-            }
-          },
-          style: "destructive"
-        }
-      ]
-    );
+        style: "destructive"
+      }
+    ]);
   };
 
-  // Get only the last 15 punches for display
   const recentPunches = punches.slice(0, 15);
-
   const { width } = Dimensions.get('window');
   const isTablet = width > 600;
 
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: "#fff",
+      backgroundColor: "#f8f9fa",
     },
     content: {
       flex: 1,
-      padding: isTablet ? 40 : 20,
+      padding: isTablet ? 20 : 16,
     },
-    title: {
-      fontSize: isTablet ? 32 : 24,
-      fontWeight: "bold",
-      marginBottom: 10,
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+      backgroundColor: '#2c3e50',
+      padding: 20,
+      borderRadius: 15,
+      elevation: 3,
+    },
+    headerText: {
+      color: 'white',
+      fontSize: 22,
+      fontWeight: 'bold',
+    },
+    statsCard: {
+      backgroundColor: 'white',
+      padding: 20,
+      borderRadius: 15,
+      marginBottom: 20,
+      elevation: 2,
     },
     weeklyText: {
+      fontSize: 18,
+      fontWeight: '600',
       marginBottom: 10,
-      fontSize: isTablet ? 18 : 16,
-      fontWeight: "bold",
+      textAlign: 'center',
     },
     expectedTime: {
-      marginBottom: 15,
-      fontSize: isTablet ? 16 : 14,
-      fontWeight: "bold",
-      color: "#2196F3",
+      fontSize: 16,
+      color: '#3498db',
+      fontWeight: '500',
+      textAlign: 'center',
+      marginTop: 10,
     },
     buttonContainer: {
-      flexDirection: isTablet ? 'row' : 'column',
-      justifyContent: isTablet ? 'space-around' : 'flex-start',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
       marginBottom: 20,
+      gap: 12,
     },
-    buttonSpacer: {
-      marginVertical: isTablet ? 0 : 5,
-      marginHorizontal: isTablet ? 10 : 0,
+    button: {
+      flex: 1,
+      backgroundColor: '#3498db',
+      padding: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+      minHeight: 50,
+      justifyContent: 'center',
+    },
+    buttonDisabled: {
+      backgroundColor: '#bdc3c7',
+    },
+    buttonText: {
+      color: 'white',
+      fontWeight: '600',
+      fontSize: 16,
     },
     historyTitle: {
-      marginTop: 20,
-      fontWeight: "bold",
-      fontSize: isTablet ? 20 : 18,
+      fontSize: 20,
+      fontWeight: 'bold',
+      marginBottom: 12,
+      color: '#2c3e50',
     },
     historyLimit: {
-      fontSize: isTablet ? 14 : 12,
-      color: "#666",
-      marginBottom: 10,
-      fontStyle: "italic",
+      fontSize: 14,
+      color: '#7f8c8d',
+      marginBottom: 15,
     },
     listItem: {
-      padding: 10,
-      borderBottomWidth: 1,
-      borderColor: "#ccc",
-      marginVertical: 5,
+      backgroundColor: 'white',
+      padding: 16,
+      borderRadius: 12,
+      marginBottom: 10,
+      elevation: 1,
     },
     listDate: {
-      fontWeight: "bold",
-      fontSize: isTablet ? 16 : 14,
-      marginBottom: 5,
+      fontWeight: '600',
+      fontSize: 15,
+      marginBottom: 8,
+      color: '#2c3e50',
     },
     timeContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 3,
+      marginBottom: 6,
+      flexWrap: 'wrap',
     },
     timeText: {
-      fontSize: isTablet ? 14 : 12,
+      fontSize: 14,
+      color: '#34495e',
     },
     separator: {
-      marginHorizontal: 5,
-      fontSize: isTablet ? 14 : 12,
+      marginHorizontal: 8,
+      fontSize: 14,
+      color: '#bdc3c7',
     },
     durationText: {
-      fontSize: isTablet ? 14 : 12,
+      fontSize: 14,
+      fontWeight: '500',
     },
     metRequirement: {
-      color: "green",
-      fontWeight: "bold",
+      color: "#27ae60",
     },
     missedRequirement: {
-      color: "red",
-      fontWeight: "bold",
+      color: "#e74c3c",
     },
-    clearButton: {
-      marginTop: 10,
-      padding: 10,
-      backgroundColor: "#ff4444",
-      borderRadius: 5,
-      alignItems: "center",
-    },
-    clearButtonText: {
-      color: "white",
-      fontWeight: "bold",
+    iconButton: {
+      padding: 8,
     },
   });
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <TouchableOpacity onLongPress={clearDatabase}>
-          <Text style={styles.title}>NWU Time Tracker</Text>
-        </TouchableOpacity>
-        
-        <Text style={[
-          styles.weeklyText,
-          weeklyHours >= 36 ? styles.metRequirement : styles.missedRequirement
-        ]}>
-          Weekly Total: {formatDuration(weeklyHours)} / 36 hours
-        </Text>
-
-        {expectedCheckOut && (
-          <Text style={styles.expectedTime}>
-            Expected Check Out: {expectedCheckOut}
-          </Text>
-        )}
-
-        <View style={styles.buttonContainer}>
-          <Button 
-            title="Check In" 
-            onPress={handleCheckIn} 
-            disabled={hasActiveCheckIn} // Disable button when already checked in
-          />
-          <View style={styles.buttonSpacer} />
-          <Button 
-            title="Check Out" 
-            onPress={handleCheckOut} 
-            disabled={!hasActiveCheckIn} // Disable button when no active check-in
-          />
+      <ScrollView style={styles.content}>
+        <View style={styles.header}>
+          <Text style={styles.headerText}>NWU Time Tracker</Text>
+          <TouchableOpacity onPress={clearDatabase} style={styles.iconButton}>
+            <Ionicons name="trash-outline" size={24} color="white" />
+          </TouchableOpacity>
         </View>
 
-        {/* Clear Data Button - Uncomment to make visible */}
-        {/* <TouchableOpacity style={styles.clearButton} onPress={clearDatabase}>
-          <Text style={styles.clearButtonText}>Clear All Data</Text>
-        </TouchableOpacity> */}
+        <View style={styles.statsCard}>
+          <Text style={[
+            styles.weeklyText,
+            weeklyHours >= 36 ? styles.metRequirement : styles.missedRequirement
+          ]}>
+            Weekly Total: {formatDuration(weeklyHours)} / 36h
+          </Text>
+          {expectedCheckOut && (
+            <Text style={styles.expectedTime}>
+              Expected Check Out: {expectedCheckOut}
+            </Text>
+          )}
+        </View>
 
-        <Text style={styles.historyTitle}>History</Text>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity 
+            style={[styles.button, hasActiveCheckIn && styles.buttonDisabled]}
+            onPress={handleCheckIn}
+            disabled={hasActiveCheckIn}
+          >
+            <Text style={styles.buttonText}>Check In</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.button, !hasActiveCheckIn && styles.buttonDisabled]}
+            onPress={handleCheckOut}
+            disabled={!hasActiveCheckIn}
+          >
+            <Text style={styles.buttonText}>Check Out</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.historyTitle}>Recent History</Text>
         <Text style={styles.historyLimit}>Showing last 15 entries</Text>
+        
         <FlatList
           data={recentPunches}
+          scrollEnabled={false}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
             <View style={styles.listItem}>
-              <Text style={styles.listDate}>
-                {formatDateWithDay(item.date)}
-              </Text>
+              <Text style={styles.listDate}>{formatDateWithDay(item.date)}</Text>
               
               {item.checkOut ? (
                 <>
                   <View style={styles.timeContainer}>
-                    <Text style={styles.timeText}>
-                      In: {dayjs(item.checkIn).format("hh:mm A")}
-                    </Text>
+                    <Text style={styles.timeText}>In: {dayjs(item.checkIn).format("hh:mm A")}</Text>
                     <Text style={styles.separator}>|</Text>
-                    <Text style={styles.timeText}>
-                      Out: {dayjs(item.checkOut).format("hh:mm A")}
-                    </Text>
+                    <Text style={styles.timeText}>Out: {dayjs(item.checkOut).format("hh:mm A")}</Text>
                   </View>
-                  <Text style={
+                  <Text style={[
+                    styles.durationText,
                     item.duration >= (dayjs(item.date).day() === 5 ? 4 : 5) 
-                      ? [styles.durationText, styles.metRequirement]
-                      : [styles.durationText, styles.missedRequirement]
-                  }>
+                      ? styles.metRequirement 
+                      : styles.missedRequirement
+                  ]}>
                     Duration: {formatDuration(item.duration)}
                   </Text>
                 </>
               ) : (
                 <View style={styles.timeContainer}>
-                  <Text style={styles.timeText}>
-                    In: {dayjs(item.checkIn).format("hh:mm A")}
-                  </Text>
+                  <Text style={styles.timeText}>In: {dayjs(item.checkIn).format("hh:mm A")}</Text>
                   <Text style={styles.separator}>|</Text>
-                  <Text style={styles.timeText}>Status: Active</Text>
+                  <Text style={[styles.timeText, {color: '#3498db'}]}>Status: Active</Text>
                 </View>
               )}
             </View>
           )}
         />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
